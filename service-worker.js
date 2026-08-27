@@ -1,10 +1,10 @@
-const CACHE_NAME = "kintai-maker-v11";
+const CACHE_NAME = "kintai-maker-v13";
 const ASSET_PATHS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js?v=pwa7",
-  "./offline-generator.js?v=pwa5",
+  "./app.js?v=pwa9",
+  "./offline-generator.js?v=pwa7",
   "./manifest.json",
   "./template.json",
   "./icons/icon-192.png",

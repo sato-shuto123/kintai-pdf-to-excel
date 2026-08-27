@@ -148,7 +148,8 @@ function safeFilenamePart(value) {
 }
 
 function firstTime(value) {
-  return String(value || "").match(/\d{1,3}:\d{2}/)?.[0] || "";
+  const match = String(value || "").match(/(^|[^\d:-])(\d{1,3}:\d{2})/);
+  return match?.[2] || "";
 }
 
 function timeToMinutes(value) {
@@ -491,12 +492,62 @@ function textInRange(items, range) {
 }
 
 function timeInRange(items, range) {
-  const topmost = itemsInRange(items, range)
+  const candidates = itemsInRange(items, range)
     .map((item) => ({ ...item, time: firstTime(item.str) }))
-    .filter((item) => item.time)
+    .filter((item) => item.time);
+  const darkCandidates = candidates.filter((item) => isDarkText(item));
+  const topmost = (darkCandidates.length ? darkCandidates : candidates)
     .sort((a, b) => b.y - a.y || a.x - b.x)[0];
   if (topmost) return topmost.time;
   return firstTime(textInRange(items, range));
+}
+
+function isDarkText(item) {
+  return typeof item.inkLuminance === "number" && item.inkLuminance <= 120;
+}
+
+async function createInkSampler(page) {
+  if (typeof document === "undefined") return null;
+
+  const scale = 2;
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+
+  await page.render({ canvasContext: context, viewport }).promise;
+
+  return (textItem) => {
+    const x = Number(textItem.transform?.[4] || 0);
+    const y = Number(textItem.transform?.[5] || 0);
+    const width = Math.max(1, Number(textItem.width || 0));
+    const height = Math.max(1, Number(textItem.height || Math.abs(textItem.transform?.[3] || 0) || 8));
+    const first = viewport.convertToViewportPoint(x - 1, y - 1);
+    const second = viewport.convertToViewportPoint(x + width + 1, y + height + 1);
+    const left = Math.max(0, Math.floor(Math.min(first[0], second[0])));
+    const right = Math.min(canvas.width, Math.ceil(Math.max(first[0], second[0])));
+    const top = Math.max(0, Math.floor(Math.min(first[1], second[1])));
+    const bottom = Math.min(canvas.height, Math.ceil(Math.max(first[1], second[1])));
+    const sampleWidth = right - left;
+    const sampleHeight = bottom - top;
+    if (sampleWidth <= 0 || sampleHeight <= 0) return null;
+
+    const pixels = context.getImageData(left, top, sampleWidth, sampleHeight).data;
+    let minLuminance = 255;
+    let inkPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] === 0) continue;
+      const luminance = 0.2126 * pixels[index] + 0.7152 * pixels[index + 1] + 0.0722 * pixels[index + 2];
+      if (luminance < 235) {
+        inkPixels += 1;
+        if (luminance < minLuminance) minLuminance = luminance;
+      }
+    }
+
+    return inkPixels ? minLuminance : null;
+  };
 }
 
 function itemsInDayBand(items, anchors, anchor, index) {
@@ -544,12 +595,16 @@ async function extractPdf(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   const page = await pdf.getPage(1);
-  const textContent = await page.getTextContent();
+  const [textContent, inkSampler] = await Promise.all([
+    page.getTextContent(),
+    createInkSampler(page).catch(() => null),
+  ]);
   const items = textContent.items
     .map((item) => ({
       x: Math.round(item.transform[4]),
       y: Math.round(item.transform[5]),
       str: String(item.str || "").trim(),
+      inkLuminance: inkSampler ? inkSampler(item) : null,
     }))
     .filter((item) => item.str);
 

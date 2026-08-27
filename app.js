@@ -1,4 +1,4 @@
-import { generateWorkbookInBrowser, readPdfMonth } from "./offline-generator.js?v=pwa5";
+import { generateWorkbookInBrowser, readPdfMonth } from "./offline-generator.js?v=pwa7";
 
 const STORAGE_KEY = "kintai-maker-settings-v1";
 const HISTORY_KEY = "kintai-maker-history-v1";
@@ -213,5 +213,15 @@ resetSchedule.addEventListener("click", () => {
 });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+  let serviceWorkerReloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (serviceWorkerReloaded) return;
+    serviceWorkerReloaded = true;
+    window.location.reload();
+  });
+
+  navigator.serviceWorker
+    .register("./service-worker.js", { updateViaCache: "none" })
+    .then((registration) => registration.update().catch(() => {}))
+    .catch(() => {});
 }
