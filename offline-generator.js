@@ -590,28 +590,40 @@ function noteTextFromItems(items) {
     .join("\n");
 }
 
-async function extractPdf(file) {
-  const pdfjsLib = await getPdfjs();
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const page = await pdf.getPage(1);
-  const [textContent, inkSampler] = await Promise.all([
-    page.getTextContent(),
-    createInkSampler(page).catch(() => null),
-  ]);
-  const items = textContent.items
+function textItemsFromContent(textContent, pageNumber, inkSampler = null) {
+  return textContent.items
     .map((item) => ({
+      pageNumber,
       x: Math.round(item.transform[4]),
       y: Math.round(item.transform[5]),
       str: String(item.str || "").trim(),
       inkLuminance: inkSampler ? inkSampler(item) : null,
     }))
     .filter((item) => item.str);
+}
 
+function monthFromItems(items) {
   const fullText = items.map((item) => item.str).join("");
   const monthMatch = fullText.replace(/\s+/g, "").match(/(20\d{2})年(\d{1,2})月度/);
   if (!monthMatch) throw new Error("PDFから年月を読み取れませんでした。");
-  const month = `${monthMatch[1]}-${pad2(monthMatch[2])}`;
+  return `${monthMatch[1]}-${pad2(monthMatch[2])}`;
+}
+
+async function extractPdf(file) {
+  const pdfjsLib = await getPdfjs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const items = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const [textContent, inkSampler] = await Promise.all([
+      page.getTextContent(),
+      createInkSampler(page).catch(() => null),
+    ]);
+    items.push(...textItemsFromContent(textContent, pageNumber, inkSampler));
+  }
+
+  const month = monthFromItems(items);
 
   const nameLabel = items.find((item) => item.str.includes("氏名"));
   const labelRow = nameLabel ? items.filter((item) => Math.abs(item.y - nameLabel.y) <= 2) : [];
@@ -638,10 +650,13 @@ async function extractPdf(file) {
 
   const anchors = items
     .filter((item) => item.x >= 15 && item.x <= 30 && /^\d{2}$/.test(item.str))
-    .sort((a, b) => b.y - a.y);
+    .sort((a, b) => a.pageNumber - b.pageNumber || b.y - a.y);
   const records = anchors.map((anchor, index) => {
-    const sameLine = items.filter((item) => Math.abs(item.y - anchor.y) <= 2);
-    const dayBand = itemsInDayBand(items, anchors, anchor, index);
+    const pageItems = items.filter((item) => item.pageNumber === anchor.pageNumber);
+    const pageAnchors = anchors.filter((item) => item.pageNumber === anchor.pageNumber);
+    const pageAnchorIndex = pageAnchors.indexOf(anchor);
+    const sameLine = pageItems.filter((item) => Math.abs(item.y - anchor.y) <= 2);
+    const dayBand = itemsInDayBand(pageItems, pageAnchors, anchor, pageAnchorIndex);
     const noteItems = dayBand.filter((item) => item.x >= 685);
 
     return {
@@ -666,8 +681,12 @@ async function extractPdf(file) {
 }
 
 export async function readPdfMonth(pdfFile) {
-  const pdfData = await extractPdf(pdfFile);
-  return { month: pdfData.month };
+  const pdfjsLib = await getPdfjs();
+  const data = new Uint8Array(await pdfFile.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const page = await pdf.getPage(1);
+  const textContent = await page.getTextContent();
+  return { month: monthFromItems(textItemsFromContent(textContent, 1)) };
 }
 
 function crc32(bytes) {

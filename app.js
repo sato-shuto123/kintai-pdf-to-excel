@@ -1,4 +1,4 @@
-import { generateWorkbookInBrowser, readPdfMonth } from "./offline-generator.js?v=pwa7";
+import { generateWorkbookInBrowser, readPdfMonth } from "./offline-generator.js?v=pwa9";
 
 const STORAGE_KEY = "kintai-maker-settings-v1";
 const HISTORY_KEY = "kintai-maker-history-v1";
