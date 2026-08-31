@@ -626,13 +626,14 @@ async function extractPdf(file) {
   const month = monthFromItems(items);
 
   const nameLabel = items.find((item) => item.str.includes("氏名"));
-  const labelRow = nameLabel ? items.filter((item) => Math.abs(item.y - nameLabel.y) <= 2) : [];
+  const namePageItems = nameLabel ? items.filter((item) => item.pageNumber === nameLabel.pageNumber) : [];
+  const labelRow = nameLabel ? namePageItems.filter((item) => Math.abs(item.y - nameLabel.y) <= 2) : [];
   const nextLabelX = nameLabel
     ? labelRow.filter((item) => item.x > nameLabel.x + 30).sort((a, b) => a.x - b.x)[0]?.x ||
       nameLabel.x + 130
     : 0;
   const nameValueItems = nameLabel
-    ? items.filter(
+    ? namePageItems.filter(
         (item) =>
           item.y < nameLabel.y &&
           item.y > nameLabel.y - 30 &&
